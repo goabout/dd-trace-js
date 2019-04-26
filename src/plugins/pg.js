@@ -1,15 +1,30 @@
-'use strict'
+const getNamespace = require('cls-hooked').getNamespace;
 
 const Tags = require('opentracing').Tags
 const analyticsSampler = require('../analytics_sampler')
 
 const OPERATION_NAME = 'pg.query'
 
+function getActiveScopeWithCLS(scope) {
+  const namespaceId = Object.keys(process.namespaces)[0]
+  const session = getNamespace(namespaceId)
+  if (!namespaceId || !session || !scope || !scope._spans) return null  
+  const traceId = session.get('session')
+  if (!traceId) return null
+
+  let selectedSpanId = Object.keys(scope._spans).find(spanId => {
+    const testedSpan = scope._spans[spanId]
+    return testedSpan && testedSpan.context().toTraceId() === traceId
+  })
+
+  return scope._spans[selectedSpanId]
+}
+
 function createWrapQuery (tracer, config) {
   return function wrapQuery (query) {
     return function queryWithTrace () {
       const scope = tracer.scope()
-      const childOf = scope.active()
+      const childOf = scope.active() || getActiveScopeWithCLS(scope)
       const span = tracer.startSpan(OPERATION_NAME, {
         childOf,
         tags: {
